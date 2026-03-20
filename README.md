@@ -4,12 +4,14 @@ Cloudflare salt module allows you to manage zones on Cloudflare from salt.
 
 ## Installation
 
-1. Copy `cloudflare.py` into `/srv/salt/_states` or do the equivalent if you
-  use a different layout for `file_roots` on Salt master.
+1. Copy `_states/cloudflare.py` into `/srv/salt/_states` and
+   `_modules/cloudflare.py` into `/srv/salt/_modules` (or do the equivalent
+   if you use a different layout for `file_roots` on Salt master).
 
-2. Sync state cache on the minion you plan to use for managing zones:
+2. Sync module and state caches on the minion you plan to use for managing zones:
 
   ```
+  salt-call saltutil.sync_modules
   salt-call saltutil.sync_states
   ```
 
@@ -52,6 +54,9 @@ cloudflare_zones:
         content: 93.184.216.34
         proxied: true
 ```
+
+Full pillar example with multiple record types:
+`examples/pillar/cloudflare_zones.sls.example`
 
 Each record can have the following fields:
 

@@ -1,0 +1,65 @@
+cloudflare_zones:
+  example.com:
+    # Preferred auth mode.
+    api_token: "cf_api_token_here"
+    zone_id: "0101deadbeefdeadbeefdeadbeefdead"
+    # Optional: records matching regexes below are ignored by this state.
+    exclude:
+      - "^_acme-challenge\\..*"
+      - "^external\\..*"
+    records:
+      - name: example.com
+        type: A
+        content: 93.184.216.34
+        proxied: true
+      - name: www.example.com
+        type: CNAME
+        content: example.com
+        proxied: true
+      - name: mail.example.com
+        type: A
+        content: 198.51.100.25
+        proxied: false
+        ttl: 300
+      - name: example.com
+        type: AAAA
+        content: "2606:2800:220:1:248:1893:25c8:1946"
+        proxied: true
+      - name: example.com
+        type: MX
+        content: mail.example.com
+        priority: 10
+        proxied: false
+        ttl: 300
+      - name: _dmarc.example.com
+        type: TXT
+        content: "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"
+        proxied: false
+        ttl: 3600
+      - name: _sip._tcp.example.com
+        type: SRV
+        # "priority\tweight\tport\ttarget"
+        content: "10\t5\t5060\tsip1.example.com"
+        proxied: false
+        ttl: 300
+      - name: example.com
+        type: CAA
+        content: '0 issue "letsencrypt.org"'
+        proxied: false
+        ttl: 3600
+      - name: legacy.example.com
+        type: A
+        content: 203.0.113.50
+        # Keep this record in Cloudflare, but do not manage it via Salt.
+        salt_managed: false
+
+  example.net:
+    # Legacy auth mode (still supported).
+    auth_email: "admin@example.net"
+    auth_key: "global_api_key_here"
+    zone_id: "0202deadbeefdeadbeefdeadbeefdead"
+    records:
+      - name: example.net
+        type: A
+        content: 203.0.113.10
+        proxied: true

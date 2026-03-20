@@ -1,0 +1,10 @@
+name: cloudflare
+version: 0.1.0
+description: cloudflare formula
+maintainers: []
+
+dependencies: []
+
+salt:
+  min_version: '3006'
+  max_version: '3009'
