@@ -6,7 +6,7 @@ import logging
 import requests
 import salt.exceptions
 
-__virtualname__ = "cloudflare"
+__virtualname__ = "cloudflare_dns"
 
 ZONES_URI_TEMPLATE = "https://api.cloudflare.com/client/v4/zones/{zone_id}"
 RECORDS_URI_TEMPLATE = (
@@ -30,13 +30,34 @@ def _get_zone_id(zone):
     return zone_id
 
 
+def _normalize_field(zone, field_name):
+    value = zone.get(field_name)
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    return text
+
+
 def _get_headers(zone):
-    api_token = zone.get("api_token")
-    auth_email = zone.get("auth_email")
-    auth_key = zone.get("auth_key")
+    api_token = _normalize_field(zone, "api_token")
+    auth_email = _normalize_field(zone, "auth_email")
+    auth_key = _normalize_field(zone, "auth_key")
 
     if api_token:
-        return {"Authorization": "Bearer {0}".format(api_token)}
+        token = api_token
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+
+        if not token or any(ch.isspace() for ch in token):
+            raise salt.exceptions.SaltInvocationError(
+                "Invalid api_token format. Use raw token (or 'Bearer <token>') without spaces/newlines."
+            )
+
+        return {"Authorization": "Bearer {0}".format(token)}
 
     if auth_email and auth_key:
         return {"X-Auth-Email": auth_email, "X-Auth-Key": auth_key}
@@ -64,9 +85,23 @@ def _request(zone, uri, method="GET", payload=None):
         )
 
     if not response.ok:
+        hint = ""
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = None
+
+        if isinstance(error_payload, dict):
+            errors = error_payload.get("errors", [])
+            if any(err.get("code") == 6111 for err in errors):
+                hint = (
+                    " Hint: check pillar 'api_token' format (no extra spaces/newlines). "
+                    "You may provide either '<token>' or 'Bearer <token>'."
+                )
+
         raise salt.exceptions.CommandExecutionError(
-            "Cloudflare returned HTTP {0}: {1}".format(
-                response.status_code, response.text
+            "Cloudflare returned HTTP {0}: {1}{2}".format(
+                response.status_code, response.text, hint
             )
         )
 

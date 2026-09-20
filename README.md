@@ -1,96 +1,143 @@
-# Cloudflare salt state
+# Cloudflare Salt Formula
 
-Cloudflare salt module allows you to manage zones on Cloudflare from salt.
+Salt formula for declarative management of Cloudflare DNS zones and records.
 
 ## Installation
 
-1. Copy `_states/cloudflare.py` into `/srv/salt/_states` and
-   `_modules/cloudflare.py` into `/srv/salt/_modules` (or do the equivalent
+1. Copy `_states/cloudflare_dns.py` into `/srv/salt/_states` and
+   `_modules/cloudflare_dns.py` into `/srv/salt/_modules` (or do the equivalent
    if you use a different layout for `file_roots` on Salt master).
 
 2. Sync module and state caches on the minion you plan to use for managing zones:
 
-  ```
-  salt-call saltutil.sync_modules
-  salt-call saltutil.sync_states
-  ```
+   ```
+   salt-call saltutil.sync_modules
+   salt-call saltutil.sync_states
+   ```
 
-### Managing DNS records
+## Managing DNS records
 
-#### Obtaining credentials
+### Authentication
 
-Note that you can use a dedicated account with `DNS Administrator` permissions
-to manage zone records if your account is a multi-user organization.
+Two authentication methods are supported:
 
-First of all, you have to obtain the Global API Key for the account:
+**API Token (recommended)**
 
-* https://www.cloudflare.com/a/account/my-account
-
-Then you need to get the zone identifier (Zone ID). You can find it on the main
-page of Cloudflare dashboard:
-
-* https://www.cloudflare.com/a/overview
-
-#### Salt changes
-
-Write the state like this (call it `cloudflare.sls`):
-
-```yaml
-example.com:
-  cloudflare.manage_zone_records:
-    - zone: {{ pillar["cloudflare_zones"]["example.com"]|yaml }}
-```
-
-Then add the following to the pillar (use your credentials and records):
+Create a token with `DNS:Edit` permission for the target zone at
+[Cloudflare Dashboard → API Tokens](https://dash.cloudflare.com/profile/api-tokens).
 
 ```yaml
 cloudflare_zones:
   example.com:
-    auth_email: ivan@example.com
-    auth_key: auth key goes here
-    zone_id: 0101deadbeefdeadbeefdeadbeefdead
+    api_token: "your_api_token_here"
+    zone_id: "0101deadbeefdeadbeefdeadbeefdead"
+    records: []
+```
+
+**Global API Key (legacy)**
+
+Obtain the key at [My Account](https://dash.cloudflare.com/profile).
+You can use a dedicated account with `DNS Administrator` permissions
+if your account is a multi-user organization.
+
+```yaml
+cloudflare_zones:
+  example.com:
+    auth_email: admin@example.com
+    auth_key: "global_api_key_here"
+    zone_id: "0101deadbeefdeadbeefdeadbeefdead"
+    records: []
+```
+
+The Zone ID can be found on the zone overview page in the Cloudflare dashboard.
+
+### State file
+
+Write the state like this (call it `cloudflare_dns.sls`):
+
+```yaml
+example.com:
+  cloudflare_dns.manage_zone_records:
+    - zone: {{ pillar["cloudflare_zones"]["example.com"]|yaml }}
+```
+
+### Pillar configuration
+
+```yaml
+cloudflare_zones:
+  example.com:
+    api_token: "your_api_token_here"
+    zone_id: "0101deadbeefdeadbeefdeadbeefdead"
+    # Optional: records matching regexes below are ignored by this state.
+    exclude:
+      - "^_acme-challenge\\..*"
+      - "^external\\..*"
     records:
-      - name: ivan.exmaple.com
+      - name: example.com
+        type: A
         content: 93.184.216.34
         proxied: true
+      - name: www.example.com
+        type: CNAME
+        content: example.com
+        proxied: true
+      - name: mail.example.com
+        type: A
+        content: 198.51.100.25
+        proxied: false
+        ttl: 300
+      - name: example.com
+        type: MX
+        content: mail.example.com
+        priority: 10
+        proxied: false
+        ttl: 300
+      - name: example.com
+        type: CAA
+        content: '0 issue "letsencrypt.org"'
+        proxied: false
+        ttl: 3600
+      - name: legacy.example.com
+        type: A
+        content: 203.0.113.50
+        salt_managed: false
 ```
 
-Full pillar example with multiple record types:
-`examples/pillar/cloudflare_zones.sls.example`
 
-Each record can have the following fields:
+### Record fields
 
-* `name`         - domain name (including zone)
-* `content`      - value of the record
-* `type`         - type of the record: `A`, `AAAA`, `SRV`, etc (`A` by default)
-* `proxied`      - whether zone should be proxied (`false` by default)
-* `ttl`          - TTL of the record in seconds, `1` means auto" (`1` by default)
-* `salt_managed` - whether the record will be managed by Salt (`true` by default)
-* `priority`     - The priority of the record. Only valid (and required) for MX records
+| Field          | Required | Default | Description                                              |
+|----------------|----------|---------|----------------------------------------------------------|
+| `name`         | yes      |         | Domain name (including zone, e.g. `sub.example.com`)     |
+| `content`      | yes      |         | Value of the record                                      |
+| `type`         | no       | `A`     | Record type: `A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`, `CAA` |
+| `proxied`      | no       | `false` | Whether the record is proxied through Cloudflare         |
+| `ttl`          | no       | `1`     | TTL in seconds (`1` = auto). Minimum `120` for non-auto  |
+| `priority`     | no       |         | Priority (required for `MX` records)                     |
+| `salt_managed` | no       | `true`  | If `false`, the record is kept in Cloudflare but not managed by Salt |
 
-Reference: https://api.cloudflare.com/#dns-records-for-a-zone-properties
+### Exclude patterns
 
-Use salt PGP renderer if you can to encrypt the auth key:
+The `exclude` list accepts Python regexes. Records whose names match any pattern
+are completely ignored — they will not be added, updated, or removed by this state.
+Useful for ACME challenges, records managed by external tools, etc.
 
-* https://docs.saltstack.com/en/latest/ref/renderers/all/salt.renderers.gpg.html
+### Usage
 
-Run the state in dry run mode:
+Use Salt PGP renderer if you can to encrypt credentials in pillar:
+https://docs.saltstack.com/en/latest/ref/renderers/all/salt.renderers.gpg.html
+
+Dry run:
 
 ```
-salt-call state.apply cloudflare test=true
+salt-call state.apply cloudflare_dns test=true
 ```
 
-Then, if you are happy with the changes, apply them:
+Apply:
 
 ```
-salt-call state.apply cloudflare
+salt-call state.apply cloudflare_dns
 ```
-
-After a short period of time your changes should propagate across the network.
-
-## Copyright
-
-* Copyright 2016 Cloudflare
 
 ## License
 

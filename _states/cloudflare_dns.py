@@ -7,7 +7,7 @@ import re
 import salt.exceptions
 
 
-__virtualname__ = "cloudflare"
+__virtualname__ = "cloudflare_dns"
 
 
 class Record(
@@ -91,16 +91,16 @@ class Record(
 
 def __virtual__():
     required = (
-        "cloudflare.get_zone",
-        "cloudflare.list_all_zone_records",
-        "cloudflare.add_dns_record",
-        "cloudflare.update_dns_record",
-        "cloudflare.remove_dns_record",
+        "cloudflare_dns.get_zone",
+        "cloudflare_dns.list_all_zone_records",
+        "cloudflare_dns.add_dns_record",
+        "cloudflare_dns.update_dns_record",
+        "cloudflare_dns.remove_dns_record",
     )
 
     missing = [name for name in required if name not in __salt__]
     if missing:
-        return False, "cloudflare execution module is not available: missing {0}".format(
+        return False, "cloudflare_dns execution module is not available: missing {0}".format(
             ", ".join(missing)
         )
 
@@ -108,11 +108,11 @@ def __virtual__():
 
 
 def manage_zone_records(name, zone):
-    managed = Zone(name, zone)
-
     try:
+        managed = Zone(name, zone)
         managed.sanity_check()
-    except salt.exceptions.SaltInvocationError as err:
+        diff = managed.diff()
+    except (salt.exceptions.SaltInvocationError, salt.exceptions.CommandExecutionError) as err:
         return {
             "name": name,
             "changes": {},
@@ -120,7 +120,6 @@ def manage_zone_records(name, zone):
             "comment": "{0}".format(err),
         }
 
-    diff = managed.diff()
     result = {"name": name, "changes": _changes(diff), "result": None}
 
     if len(diff) == 0:
@@ -138,7 +137,14 @@ def manage_zone_records(name, zone):
         result["pchanges"] = result["changes"]
         return result
 
-    managed.apply(diff)
+    try:
+        managed.apply(diff)
+    except salt.exceptions.CommandExecutionError as err:
+        result["comment"] = "Failed to apply changes for {0} ({1}): {2}".format(
+            name, zone["zone_id"], err
+        )
+        result["result"] = False
+        return result
 
     result["comment"] = "The state of {0} ({1}) was changed ({2} changes).".format(
         name, zone["zone_id"], len(diff)
@@ -219,7 +225,7 @@ class Zone(object):
             )
 
     def sanity_check(self):
-        found = __salt__["cloudflare.get_zone"](self.zone)
+        found = __salt__["cloudflare_dns.get_zone"](self.zone)
         found_name = found["result"]["name"]
 
         if self.name != found_name:
@@ -283,7 +289,7 @@ class Zone(object):
 
     def existing(self):
         records = {}
-        found_records = __salt__["cloudflare.list_all_zone_records"](self.zone)
+        found_records = __salt__["cloudflare_dns.list_all_zone_records"](self.zone)
 
         for record_dict in found_records:
             record = record_from_dict(record_dict)
@@ -381,11 +387,11 @@ class Zone(object):
     def apply(self, diff):
         for op in diff:
             if op["action"] == self.ACTION_ADD:
-                __salt__["cloudflare.add_dns_record"](self.zone, op["record"].json())
+                __salt__["cloudflare_dns.add_dns_record"](self.zone, op["record"].json())
             elif op["action"] == self.ACTION_REMOVE:
-                __salt__["cloudflare.remove_dns_record"](self.zone, op["record"].id)
+                __salt__["cloudflare_dns.remove_dns_record"](self.zone, op["record"].id)
             elif op["action"] == self.ACTION_UPDATE:
-                __salt__["cloudflare.update_dns_record"](
+                __salt__["cloudflare_dns.update_dns_record"](
                     self.zone,
                     op["record"].id,
                     op["record"].json(),
